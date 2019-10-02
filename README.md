@@ -7,8 +7,7 @@ Once you have imported the module, you will be able to use it in every Word docu
 3. In the editor, choose File -> Import File
 4. Navigate to, and select, the PMAmodule_renumber_vN.bas file. (The N is the version number and may change over time.)
 
-To use the module, you will first need to create an Excel file (.xlsx only). An example file is included in this repository. 
-The first column are the words to search for; the second column are what each word is replaced by. 
+To use the module, you will first need to create an Excel file (.xlsx only). An example file called "testingInputPatterns.xlsx" is included in this repository. The first column are the words to search for; the second column are what each word is replaced by. 
 A "word" in this case is a series of characters that form a discrete unit and is separated from surrounding text by a space or non-alphanumeric character (such as a period). For example, "101" will not match part of the string "101001" but will match the string "101.".
 
 There are three modes this find-and-replace feature can run in:
