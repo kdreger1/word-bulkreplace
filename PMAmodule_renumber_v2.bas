@@ -1,4 +1,4 @@
-Attribute VB_Name = "PMAmodule_renumber_v1"
+Attribute VB_Name = "PMAmodule_renumber_v2"
 Option Explicit
 
 ' declare functions
@@ -33,28 +33,38 @@ On Error GoTo errme
     Dim inFileName As String    ' Excel file that has the numbers to change
     Dim outFileName As String   ' where to put resulting Word file
     Dim defaultDir As String    ' PMA uses Dropbox, so start search here (change to Teams eventually)
-    'Dim renumberMode As Variant ' one of 3 modes
-    Dim changeText As Boolean
+    Dim changeText As Boolean   ' do we change the text? we may just be highlighting
     Dim popName As String       ' so we can destroy it after use
     
     Dim excelSrc As Workbook            ' object for the Excel input file
-    Dim changeFrom(1 To 1000) As String ' read-in colum 1
-    Dim changeTo(1 To 1000) As String   ' read-in column 2
+    Dim changeFromVal As String         ' read-in colum 1
+    Dim changeToVal As String           ' read-in column 2
+    Dim changeFrom(1 To 1000) As String ' store colum 1
+    Dim changeTo(1 To 1000) As String   ' store column 2
     Dim maxDim As Integer               ' largest array size
     Dim totalRows As Integer            ' total number of rows read into arrays
+    Dim validRows As Integer            ' number of valid rows read into arrays
     Dim activeSheetName As String       ' first sheet in the Excel file (usually called Sheet1, but just in case...)
     
     Dim prefixStr As String     ' to avoid cascading changes
-    'Dim Word As Range           ' to loop through the document
+    Dim suffixStr As String     ' to avoid cascading changes
+    Dim underscoreStr As String ' to allow underscores as part of the pattern
     
     Dim i As Integer
     Dim j As Integer
     
+    ' VERSION CONTROL
+    ' v2 allow underscores
+    ' v2 ignore non-changes in text (101a -> 101a, for example)
+    
     ' initialize
     maxDim = 1000
-    prefixStr = "Z0Y1X2W3V"
+    prefixStr = " Z0Y1X2W3V"
+    suffixStr = "S9F9I9X9 "
+    underscoreStr = "U0N0D0S0C0R0E0S"
     PMA_RENUMBER_MODE = Null
     changeText = False
+    validRows = 0
     
     ' set defaultDir to be Dropbox root
     defaultDir = "C:\Users\" & PMA_renumber_getUser & "\Dropbox (Gates Institute)"
@@ -86,21 +96,17 @@ On Error GoTo errme
         GoTo cleanup
     End If
     
-    ' copy to arrays
+    ' copy to arrays if valid
+    validRows = 0
     For i = 1 To totalRows
-        changeFrom(i) = excelSrc.Worksheets(activeSheetName).Range("A" & i).Value
-        changeTo(i) = excelSrc.Worksheets(activeSheetName).Range("B" & i).Value
-    Next i
+        changeFromVal = excelSrc.Worksheets(activeSheetName).Range("A" & i).Value
+        changeToVal = excelSrc.Worksheets(activeSheetName).Range("B" & i).Value
     
-    ' remove blank rows (sometimes Excel thinks an empty row is real data)
-    For i = 1 To totalRows
-        If changeFrom(i) = "" Or changeTo(i) = "" Then
-            For j = i To totalRows - 1
-                changeFrom(j) = changeFrom(j + 1)
-                changeTo(j) = changeTo(j + 1)
-            Next j
-            
-            totalRows = totalRows - 1
+        ' ignore blanks and non-changes
+        If changeFromVal <> "" And changeToVal <> "" And changeToVal <> changeFromVal Then
+            validRows = validRows + 1
+            changeFrom(validRows) = changeFromVal
+            changeTo(validRows) = changeToVal
         End If
     Next i
     
@@ -136,8 +142,23 @@ On Error GoTo errme
             GoTo cleanup
     End Select
     
+    ' underscores are non-alphanumeric but are used as part of the valid word pattern
+    If changeText Then
+        With ActiveDocument.Content.Find
+            .Text = "_"
+            .Replacement.Text = underscoreStr
+            .Wrap = wdFindContinue
+            .Execute Replace:=wdReplaceAll
+        End With
+    
+        For i = 1 To validRows
+            changeFrom(i) = Replace(changeFrom(i), "_", underscoreStr)
+            changeTo(i) = Replace(changeTo(i), "_", underscoreStr)
+        Next i
+    End If
+    
     ' loop through changes to apply
-    For i = 1 To totalRows
+    For i = 1 To validRows
         With Selection.Find
             .Text = changeFrom(i)
             .Forward = True
@@ -150,7 +171,7 @@ On Error GoTo errme
             .MatchAllWordForms = False
             
             If changeText Then
-                .Replacement.Text = prefixStr & changeTo(i)
+                .Replacement.Text = prefixStr & changeTo(i) & suffixStr
             Else
                 .Replacement.Text = ""  ' this does not change it to a blank, but rather indicates no text change
             End If
@@ -165,6 +186,26 @@ On Error GoTo errme
         With ActiveDocument.Content.Find
             .Text = prefixStr
             .Replacement.Text = ""
+            .Wrap = wdFindContinue
+            .Execute Replace:=wdReplaceAll
+        End With
+    End If
+    
+    ' remove suffix
+    If changeText Then
+        With ActiveDocument.Content.Find
+            .Text = suffixStr
+            .Replacement.Text = ""
+            .Wrap = wdFindContinue
+            .Execute Replace:=wdReplaceAll
+        End With
+    End If
+    
+    ' return underscores
+    If changeText Then
+        With ActiveDocument.Content.Find
+            .Text = underscoreStr
+            .Replacement.Text = "_"
             .Wrap = wdFindContinue
             .Execute Replace:=wdReplaceAll
         End With
