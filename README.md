@@ -9,7 +9,9 @@ Once you have imported the module, you will be able to use it in every Word docu
 
 To use the module, you will first need to create an Excel file (.xlsx only). An example file called "testingInputPatterns.xlsx" is included in this repository. The first column are the words to search for; the second column are what each word is replaced by. Do not include column headers.
 
-A "word" in the context of this module is a series of characters that form a discrete unit and is separated from surrounding text by a space or non-alphanumeric character (such as a period). For example, "101" will not match part of the string "101001" nor will it match "101a" but will match the string "101.". The only non-alphanumeric character that can be matched on is an underscore. Rows in the Excel spreadsheet that are missing a change-from field or a change-to field are ignored. Also ignored are rows with non-changes; example: 101a -> 101a.
+A "word" in the context of this module is a series of characters that form a discrete unit and is separated from surrounding text by a space or non-alphanumeric character (such as a period). For example, "101" will not match part of the string "101001" nor will it match "101a" but will match the string "101.". The only non-alphanumeric character that can be matched on is an underscore. Rows in the Excel spreadsheet that are missing a change-from field or a change-to field are ignored. Also ignored are rows with non-changes; example: 101a -> 101a. 
+
+This program will warn the user if there are nonblank search-for patterns in the Excel document that are not in the Word document. This does not produce an error however, and the search-and-replace will continue after the warning message.
 
 There are three modes this find-and-replace feature can run in:
 1. Highlight any changes, but do not make them

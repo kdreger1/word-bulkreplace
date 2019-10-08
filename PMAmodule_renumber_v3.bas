@@ -1,4 +1,4 @@
-Attribute VB_Name = "PMAmodule_renumber_v2"
+Attribute VB_Name = "PMAmodule_renumber_v3"
 Option Explicit
 
 ' declare functions
@@ -10,10 +10,14 @@ Option Explicit
     Declare Function PMA_renumber_GetUserName Lib "advapi32.dll" Alias "GetUserNameA" (ByVal lpBuffer As String, nSize As Long) As Long
 #End If
 
+' develop in early binding, distribute in late binding
+#Const LATEBINDING = True
+
 ' constants for mode selection. The strings are displayed by the pop-up menu
 Const PMA_RENUMBER_MODE_HyTn As String = "Highlight existing numbers, but do not make text changes"
 Const PMA_RENUMBER_MODE_HyTy As Variant = "Highlight existing numbers, and make text changes"
 Const PMA_RENUMBER_MODE_HnTy As Variant = "Do not highlight, and make text changes"
+Const PMA_RENUMBER_XlUP As Integer = -4162  ' Excel constant x1up
 Public PMA_RENUMBER_MODE As Variant
 
 
@@ -36,15 +40,18 @@ On Error GoTo errme
     Dim changeText As Boolean   ' do we change the text? we may just be highlighting
     Dim popName As String       ' so we can destroy it after use
     
-    Dim excelSrc As Workbook            ' object for the Excel input file
+    Dim excelSrc As Object              ' object for the Excel input file
+    Dim excelApp As Object              ' object for Excel application
     Dim changeFromVal As String         ' read-in colum 1
     Dim changeToVal As String           ' read-in column 2
     Dim changeFrom(1 To 1000) As String ' store colum 1
     Dim changeTo(1 To 1000) As String   ' store column 2
+    Dim changeFromCheck(1 To 1000) As String ' store all of column 1 for warning check
     Dim maxDim As Integer               ' largest array size
     Dim totalRows As Integer            ' total number of rows read into arrays
     Dim validRows As Integer            ' number of valid rows read into arrays
     Dim activeSheetName As String       ' first sheet in the Excel file (usually called Sheet1, but just in case...)
+    Dim missingStr As String            ' patterns defined in Excel that do not appear in Word
     
     Dim prefixStr As String     ' to avoid cascading changes
     Dim suffixStr As String     ' to avoid cascading changes
@@ -56,6 +63,9 @@ On Error GoTo errme
     ' VERSION CONTROL
     ' v2 allow underscores
     ' v2 ignore non-changes in text (101a -> 101a, for example)
+    '
+    ' v3 late binding for Excel
+    ' v3 warn user if search-for patterns do not appear in the Word document
     
     ' initialize
     maxDim = 1000
@@ -65,6 +75,7 @@ On Error GoTo errme
     PMA_RENUMBER_MODE = Null
     changeText = False
     validRows = 0
+    missingStr = ""
     
     ' set defaultDir to be Dropbox root
     defaultDir = "C:\Users\" & PMA_renumber_getUser & "\Dropbox (Gates Institute)"
@@ -83,13 +94,23 @@ On Error GoTo errme
         ' user canceled
         GoTo cleanup
     End If
-    
+
     ' open up the Excel file in read-only hidden mode
     Application.ScreenUpdating = False
     
-    Set excelSrc = Workbooks.Open(inFileName, False, True)
-    activeSheetName = ActiveSheet.Name
-    totalRows = excelSrc.Worksheets(activeSheetName).Range("A1:A" & Cells(Rows.Count, "A").End(xlUp).Row).Rows.Count
+    #If LATEBINDING Then
+        Set excelApp = CreateObject("Excel.Application")
+        excelApp.Visible = False
+    #Else
+        Set excelApp = Excel.Application
+    #End If
+    
+    Set excelSrc = excelApp.Workbooks.Open(inFileName, False, True)
+    activeSheetName = excelSrc.ActiveSheet.Name
+    With excelSrc.Worksheets(activeSheetName)
+        totalRows = .Range("A1:A" & .Cells(.Rows.Count, "A").End(PMA_RENUMBER_XlUP).Row).Rows.Count
+    End With
+        
     If totalRows > maxDim Then
         MsgBox "There are too many rows (" & totalRows & ") in the Excel file." & Chr(13) & "Maximum number of rows allowed is " & maxDim & ".", vbCritical + vbOKOnly, "ERROR"
         excelSrc.Close False
@@ -101,6 +122,9 @@ On Error GoTo errme
     For i = 1 To totalRows
         changeFromVal = excelSrc.Worksheets(activeSheetName).Range("A" & i).Value
         changeToVal = excelSrc.Worksheets(activeSheetName).Range("B" & i).Value
+    
+        ' save all for later first comparison
+        changeFromCheck(i) = changeFromVal
     
         ' ignore blanks and non-changes
         If changeFromVal <> "" And changeToVal <> "" And changeToVal <> changeFromVal Then
@@ -123,7 +147,6 @@ On Error GoTo errme
     Options.DefaultHighlightColorIndex = wdTurquoise
     
     ' modes for this script
-    'renumberMode = PMA_renumber_getMode
     Select Case PMA_renumber_Nz(PMA_renumber_getMode, "NULL")
         Case PMA_RENUMBER_MODE_HyTn
             Selection.Find.Replacement.Highlight = True
@@ -155,6 +178,24 @@ On Error GoTo errme
             changeFrom(i) = Replace(changeFrom(i), "_", underscoreStr)
             changeTo(i) = Replace(changeTo(i), "_", underscoreStr)
         Next i
+        For i = 1 To totalRows
+            changeFromCheck(i) = Replace(changeFromCheck(i), "_", underscoreStr)
+        Next i
+    End If
+    
+    ' warn the user if some patterns do not appear in the Word document
+    For i = 1 To totalRows
+        If changeFromCheck(i) <> "" Then
+            If Not ActiveDocument.Content.Find.Execute(changeFromCheck(i), True, True, False, False, False, True, wdFindContinue) Then
+                missingStr = missingStr & Chr(13) & changeFromCheck(i)
+            End If
+        End If
+    Next i
+    
+    If missingStr <> "" Then
+        missingStr = Replace(missingStr, underscoreStr, "_")
+        missingStr = "The following search-for patterns appear in the Excel spreadsheet but not the Word document:" & Chr(13) & missingStr
+        MsgBox missingStr, vbInformation + vbOKOnly, "Warning"
     End If
     
     ' loop through changes to apply
@@ -215,6 +256,7 @@ cleanup:
 '    If Not excelSrc Is Nothing Then
 '        excelSrc.Close False
 '    End If
+    Set excelApp = Nothing
     Set excelSrc = Nothing
     
     Application.ScreenUpdating = True
@@ -242,11 +284,6 @@ On Error GoTo errme
     Call PMA_renumber_DeleteCustomPopUp(popName)
 
     PMA_renumber_getMode = PMA_RENUMBER_MODE
-        
-    ' debug
-    'PMA_renumber_getMode = "highlight_nochange"
-    'PMA_renumber_getMode = "highlight_change"
-    'PMA_renumber_getMode = "nohighlight_change"
 
     Exit Function
 errme:
@@ -255,6 +292,7 @@ errme:
 End Function
 
 Public Function PMA_renumber_Nz(ByVal Value, Optional ByVal ValueIfNull = "")
+' simulate Nz()
 
     PMA_renumber_Nz = IIf(IsNull(Value), ValueIfNull, Value)
 
@@ -263,6 +301,7 @@ End Function
 Public Function PMA_renumber_getUser() As String
 On Error GoTo errme
     ' Display the name of the user currently logged on.
+    
     Dim username As String  ' receives name of the user
     Dim slength As Long  ' length of the string
     Dim retval As Long  ' return value
@@ -289,7 +328,9 @@ On Error GoTo errme
     ' Open up a file picker that is filtered for Excel files (xlsx only)
 
     Dim fd As FileDialog
-    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    'Dim fd As Object
+    
+    Set fd = Application.FileDialog(3)  ' msoFileDialogFilePicker = 3
     Dim FileChosen As Integer
 
     fd.Title = dialogTitleStr
@@ -334,8 +375,8 @@ End Function
 
 Function PMA_renumber_CreatePopUp(popName As String)
 On Error GoTo errme
-
     ' creates the custom popup menu
+    
     Dim cb As CommandBar
     
     ' clear any old one
@@ -373,8 +414,8 @@ End Function
 
 Function PMA_renumber_DisplayCustomPopUp(popName As String)
 On Error GoTo errme
-
     ' displays the indicated custom popup menu
+    
     Application.CommandBars(popName).ShowPopup
     
     Exit Function
@@ -384,6 +425,7 @@ End Function
 
 Public Function PMA_renumber_setMode()
 On Error GoTo errme
+    ' sets the global variable PMA_RENUMBER_MODE to let the main function know what mode we are in
 
     PMA_RENUMBER_MODE = CommandBars.ActionControl.Caption
     
